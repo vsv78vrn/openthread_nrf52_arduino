@@ -22,7 +22,12 @@
 #include "IPAddress.h"
 #include "Print.h"
 
+#include <initializer_list>
+
 #include <nrf52840.h>
+
+extern "C" {
+#include <openthread-core-config.h>
 
 #include <openthread/config.h>
 #include <openthread/backbone_router.h>
@@ -59,12 +64,58 @@
 #include <openthread/channel_manager.h>
 #include <openthread/channel_monitor.h>
 #include <openthread/child_supervision.h>
+#include <openthread/entropy.h>
+#include <openthread/random_crypto.h>
 #include <openthread/cli.h>
 #include <openthread/ncp.h>
 #include <openthread/diag.h>
 #include <openthread/platform/diag.h>
-
 #include <openthread/openthread-freertos.h>
+
+#include <openthread/platform/entropy.h>
+#include <openthread/platform/udp.h>
+#include <openthread/crypto.h>
+#include <openthread/random_crypto.h>
+#include <openthread/random_noncrypto.h>
+#include <openthread/entropy.h>
+#include <openthread/logging.h>
+
+#include <mbedtls/entropy.h>
+#include <openthread/openthread-freertos.h>
+}
+
+#include "otcmd.h"
+
+#define SuccessOrExit(aStatus) \
+    do                         \
+    {                          \
+        if ((aStatus) != 0)    \
+        {                      \
+            goto exit;         \
+        }                      \
+    } while (false)
+
+#define VerifyOrExit(aCondition, ...) \
+    do                                \
+    {                                 \
+        if (!(aCondition))            \
+        {                             \
+            __VA_ARGS__;              \
+            goto exit;                \
+        }                             \
+    } while (false)
+
+#define OT_API_CALL_RET(ty, ...) \
+    { ty ret; \
+    do                       \
+    {                        \
+        otrLock();           \
+        ret = __VA_ARGS__;   \
+        otrUnlock();         \
+        otrTaskNotifyGive(); \
+    } while (0);             \
+    return ret; }
+
 
 #define OT_CALL_FUNC0(cls, fn) ot##cls##fn (otrGetInstance())
 #define OT_CALL_FUNC1(cls, fn) ot##cls##fn (otrGetInstance(), a1)
@@ -128,7 +179,7 @@
 #define OT_FUNC_4_DECL(ty, na, cat, n2, t1, t2, t3, t4) \
   ty na(t1, t2, t3, t4)
 
-#define OTCLS(cls) OT ## cls
+#define OTCLS(cls) OpenThread ## cls ## Class
 #define OT_DECL__FUNC(n, cls, rettype, fn, ...) \
 rettype OpenThreadClass::  OTCLS(cls)  ::  fn (OT_DECL_ARGS ## n(__VA_ARGS__)) \
 { \
@@ -157,7 +208,8 @@ public:
     return n;
   }
   operator const uint8_t*() { return value->m8; }
-  operator const T*() { return value; }
+  operator const T*() const { return value; }
+  operator T*() { return const_cast<T*>(value); }
 private:
   static T default_value;
   const T* value;
@@ -170,6 +222,8 @@ public:
   size_t printTo(Print& p) const {
     return p.print(reinterpret_cast<const char*>(value->m8));
   }
+  operator const T*() const { return value; }
+  operator T*() { return const_cast<T*>(value); }
   operator const char*() { return reinterpret_cast<const char*>(value->m8); }
 private:
   const T* value;
@@ -235,42 +289,7 @@ public:
   uint32_t RxErrFcs() const { return value->mRxErrFcs; }
   uint32_t RxErrOther() const { return value->mRxErrOther; }
   operator const otMacCounters*() const { return value; }
-  size_t printTo(Print& p) const {
-    size_t n = 0; 
-    n += p.print("TxTotal: "); n += p.println(value->mTxTotal);
-    n += p.print("TxUnicast: "); n += p.println(value->mTxUnicast);
-    n += p.print("TxBroadcast: "); n += p.println(value->mTxBroadcast);
-    n += p.print("TxAckRequested: "); n += p.println(value->mTxAckRequested);
-    n += p.print("TxAcked: "); n += p.println(value->mTxAcked);
-    n += p.print("TxNoAckRequested: "); n += p.println(value->mTxNoAckRequested);
-    n += p.print("TxData: "); n += p.println(value->mTxData);
-    n += p.print("TxDataPoll: "); n += p.println(value->mTxDataPoll);
-    n += p.print("TxBeacon: "); n += p.println(value->mTxBeacon);
-    n += p.print("TxBeaconRequest: "); n += p.println(value->mTxBeaconRequest);
-    n += p.print("TxOther: "); n += p.println(value->mTxOther);
-    n += p.print("TxRetry: "); n += p.println(value->mTxRetry);
-    n += p.print("TxErrCca: "); n += p.println(value->mTxErrCca);
-    n += p.print("TxErrAbort: "); n += p.println(value->mTxErrAbort);
-    n += p.print("TxErrBusyChannel: "); n += p.println(value->mTxErrBusyChannel);
-    n += p.print("RxTotal: "); n += p.println(value->mRxTotal);
-    n += p.print("RxUnicast: "); n += p.println(value->mRxUnicast);
-    n += p.print("RxBroadcast: "); n += p.println(value->mRxBroadcast);
-    n += p.print("RxData: "); n += p.println(value->mRxData);
-    n += p.print("RxDataPoll: "); n += p.println(value->mRxDataPoll);
-    n += p.print("RxBeacon: "); n += p.println(value->mRxBeacon);
-    n += p.print("RxBeaconRequest: "); n += p.println(value->mRxBeaconRequest);
-    n += p.print("RxOther: "); n += p.println(value->mRxOther);
-    n += p.print("RxAddressFiltered: "); n += p.println(value->mRxAddressFiltered);
-    n += p.print("RxDestAddrFiltered: "); n += p.println(value->mRxDestAddrFiltered);
-    n += p.print("RxDuplicated: "); n += p.println(value->mRxDuplicated);
-    n += p.print("RxErrNoFrame: "); n += p.println(value->mRxErrNoFrame);
-    n += p.print("RxErrUnknownNeighbor: "); n += p.println(value->mRxErrUnknownNeighbor);
-    n += p.print("RxErrInvalidSrcAddr: "); n += p.println(value->mRxErrInvalidSrcAddr);
-    n += p.print("RxErrSec: "); n += p.println(value->mRxErrSec);
-    n += p.print("RxErrFcs: "); n += p.println(value->mRxErrFcs);
-    n += p.print("RxErrOther: "); n += p.println(value->mRxErrOther);
-    return n;
-  }
+  size_t printTo(Print& p) const;
 private:
   const otMacCounters* value;
 };
@@ -289,157 +308,274 @@ private:
   otError err;
 };
 
+class OTChildIterator {
+  otError error;
+  uint16_t index;
+  otChildInfo entry;
+
+public:
+  OTChildIterator() : index(0) {}
+  bool end() { return error; }
+  const otChildInfo* get() { return (error ? nullptr : &entry); }
+  const otChildInfo* next();
+};
+
+class OTChildIpIterator {
+  otError error;
+  otChildIp6AddressIterator iter;
+  otIp6Address entry;
+  uint16_t index;
+
+public:
+  OTChildIpIterator(uint16_t i) : iter(OT_CHILD_IP6_ADDRESS_ITERATOR_INIT), index(i) {}
+  bool end() { return error; }
+  const otIp6Address* get() { return (error ? nullptr : &entry); }
+  const otIp6Address* next();
+};
+
+class OTRouteIterator {
+  otError error;
+  otNetworkDataIterator iter;
+  otExternalRouteConfig entry;
+
+public:
+  OTRouteIterator() : iter(OT_NETWORK_DATA_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otExternalRouteConfig* get() { return (error ? nullptr : &entry); }
+
+  const otExternalRouteConfig* next();
+};
+
+class OTRouterIterator {
+  otError error;
+  uint16_t index;
+  otRouterInfo entry;
+
+
+public:
+  OTRouterIterator() : index(0) {}
+  bool end() { return error; }
+  const otRouterInfo* get() { return (error ? nullptr : &entry); }
+
+  const otRouterInfo* next();
+};
+
+class OTEidCacheIterator {
+  otError error;
+  otCacheEntryIterator iter;
+  otCacheEntryInfo entry;
+
+public:
+  bool end() { return error; }
+  const otCacheEntryInfo* get() { return (error ? nullptr : &entry); }
+  const otCacheEntryInfo* next();
+};
+
+class OTNeighborIterator {
+  otError error;
+  otNeighborInfoIterator iter;
+  otNeighborInfo entry;
+
+public:
+  OTNeighborIterator() : iter(OT_NEIGHBOR_INFO_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otNeighborInfo* get() { return (error ? nullptr : &entry); }
+
+  const otNeighborInfo* next();
+};
+
+class OTPrefixIterator {
+  otError error;
+  otNetworkDataIterator iter;
+  otBorderRouterConfig entry;
+
+public:
+  OTPrefixIterator() : iter(OT_NETWORK_DATA_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otBorderRouterConfig* get() { return (error ? nullptr : &entry); }
+  const otBorderRouterConfig* next();
+};
+
+class OTMacfilterAddrIterator {
+  otError error;
+  otMacFilterIterator iter;
+  otMacFilterEntry entry;
+
+public:
+  OTMacfilterAddrIterator() : iter(OT_MAC_FILTER_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otMacFilterEntry* get() { return (error ? nullptr : &entry); }
+  const otMacFilterEntry* next();
+};
+
+class OTMacfilterRssIterator {
+  otError error;
+  otMacFilterIterator iter;
+  otMacFilterEntry entry;
+
+public:
+  OTMacfilterRssIterator() : iter(OT_MAC_FILTER_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otMacFilterEntry* get() { return (error ? nullptr : &entry); }
+  const otMacFilterEntry* next();
+};
+
+class OTMacfilterIterator {
+  otError error;
+  otMacFilterIterator iter;
+  otMacFilterEntry entry;
+  bool addr_end;
+
+  void _next();
+public:
+  OTMacfilterIterator() : iter(OT_MAC_FILTER_ITERATOR_INIT) {}
+  bool end() { return error; }
+  const otMacFilterEntry* get() { return (error ? nullptr : &entry); }
+  const otMacFilterEntry* next();
+};
+
+class OTIpaddrIterator {
+  const otNetifAddress* addr;
+
+public:
+  OTIpaddrIterator();
+  bool end() { return !addr; }
+  const otNetifAddress* get() { return addr; }
+  const otNetifAddress* next() { addr = addr->mNext; return addr; }
+};
+
+class OTIpmaddrIterator{
+  const otNetifMulticastAddress* addr;
+
+public:
+  OTIpmaddrIterator();
+  bool end() { return !addr; }
+  const otNetifMulticastAddress* get() { return addr; }
+
+  const otNetifMulticastAddress* next() { addr = addr->mNext; return addr; }
+};
+
+#if OPENTHREAD_CONFIG_COAP_API_ENABLE
+class OTCoap {
+  otCoapResource mResource;
+  uint8_t mResourceContent[16];
+  uint16_t mResourceContentLength;
+  bool mUseDefaultRequestTxParameters;
+  bool mUseDefaultResponseTxParameters;
+  otCoapTxParameters mRequestTxParameters;
+  otCoapTxParameters mResponseTxParameters;
+
+  otError _request(otCoapCode, const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+
+  const otCoapTxParameters *GetRequestTxParameters(void) const
+  {
+    return mUseDefaultRequestTxParameters ? NULL : &mRequestTxParameters;
+  }
+
+  const otCoapTxParameters *GetResponseTxParameters(void) const
+  {
+    return mUseDefaultResponseTxParameters ? NULL : &mResponseTxParameters;
+  }
+
+  static void HandleRequest(void*, otMessage*, const otMessageInfo*);
+  void HandleRequest(otMessage*, const otMessageInfo*);
+
+public:
+#if OPENTHREAD_CONFIG_COAP_OBSERVE_API_ENABLE
+  otError cancel();
+  otError observe(const otIp6Addresss*, const char*, otCoapType);
+#endif
+  otError resource(char const*);
+  void set(uint8_t*, size_t);
+  otError start();
+  otError stop();
+  void parameters_request_default();
+  void parameters_request(uint32_t acktimeout, uint8_t numerator, uint8_t denominator, uint8_t retransmit);
+  void parameters_response_default();
+  void parameters_response(uint32_t acktimeout, uint8_t numerator, uint8_t denominator, uint8_t retransmit);
+  otError request_delete(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_get(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_post(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_put(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+};
+#endif // OPENTHREAD_CONFIG_COAP_API_ENABLE
+
+#if OPENTHREAD_CONFIG_COAP_SECURE_API_ENABLE
+class OTCoapSecure {
+  otCoapResource mResource;
+  otError _request(otCoapCode, const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+public:
+  otError resource(char const*, otCoapRequestHandler, void*);
+  otError start();
+  void stop();
+  otError connect(const otIp6Address*, uint16_t, otHandleCoapSecureClientConnect, void*);
+  void disconnect();
+  otError request_delete(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_get(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_post(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+  otError request_put(const otIp6Address*, char const*, otCoapType, uint8_t*, uint16_t, otCoapResponseHandler, void*);
+#ifdef MBEDTLS_KEY_EXCHANGE_PSK_ENABLED
+  otError psk(const char*, const char*);
+#endif // MBEDTLS_KEY_EXCHANGE_PSK_ENABLED
+#ifdef MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
+  void x509();
+#endif
+};
+#endif // OPENTHREAD_CONFIG_COAP_SECURE_API_ENABLE
+
+class OTDataset {
+  otOperationalDataset mDataset;
+public:
+  otError commit_active();
+  otError commit_pending();
+  otError init_active();
+#if OPENTHREAD_FTD
+  otError init_new();
+#endif
+  otError init_pending();
+  //TODO otError mgmtgetcommand_active(otOperationalDatasetComponents*);
+  //TODO otError mgmtgetcommand_pending(otOperationalDatasetComponents*);
+  //TODO otError mgmtsetcommand_active(const otOperationalDatasetComponents*);
+  //TODO otError mgmtsetcommand_pending(const otOperationalDatasetComponents*);
+  void clear();
+  void channelmask(uint32_t);
+  void channel(uint16_t);
+  void delay(uint32_t);
+  void extpanid(const otExtendedPanId*);
+  void masterkey(const otMasterKey*);
+  void meshlocalprefix(const otIp6Prefix*);
+  void networkname(const char*);
+  void panid(otPanId);
+  void pendingtimestamp(uint64_t);
+  void activetimestamp(uint64_t);
+  void securitypolicy(uint16_t, uint32_t);
+#if OPENTHREAD_FTD
+  void pskc(const otPskc*);
+  otError pskc_passphrase(char const*);
+#endif
+};
+
+class OTUdp {
+  otUdpSocket mSocket;
+public:
+  otError open(otUdpReceive, void*);
+  otError close();
+  otError bind(const otIp6Address*, uint16_t);
+  otError connect(const otIp6Address*, uint16_t);
+  otError _send(const otIp6Address*, uint16_t, const void*, uint16_t);
+  otError send_text(const otIp6Address*, uint16_t, char const*);
+  otError send_data(const otIp6Address*, uint16_t, uint8_t*, uint16_t);
+  otError send_size(const otIp6Address*, uint16_t, uint16_t);
+  otError send_text(const char*);
+  otError send_data(uint8_t*, uint16_t);
+  otError send_size(uint16_t);
+};
+
 class OpenThreadClass {
 public:
   int begin();
   int dump(Print& p);
-  // x help
-  
-  OT_V_FUNC_1_DECL(bufferinfo, Message, GetBufferInfo, otBufferInfo*);
-  OT_SETGET_DECL(uint8_t, channel, Link, Channel);
-#if OPENTHREAD_FTD
-  OT_FUNC_2_DECL(otError, child, Thread, GetChildInfoByIndex, int, otChildInfo*);
-  // childip
-  OT_SETGET_DECL(uint8_t, childmax, Thread, MaxAllowedChildren);
-#endif
-  OT_V_SETGET_DECL(uint32_t, childtimeout, Thread, ChildTimeout);
-  // x coap
-  // x coaps
-#if OPENTHREAD_CONFIG_COMMISSIONER_ENABLE
-  OT_GETTER_DECL(otCommissionerState, commissioner, Commissioner, State);
-  OT_FUNC_3_DECL(otError, commissioner_start, Commissioner, Start, otCommissionerStateCallback, otCommissionerJoinerCallback, void*);
-  OT_FUNC_0_DECL(otError, commissioner_stop, Commissioner, Stop);
-  OT_SETTER_DECL(const char*, commissioner_provisioningurl, Commissioner, ProvisioningUrl);
-  otError commissioner_announce(uint32_t mask, uint8_t count, uint16_t period, IPAddress& addr);
-  otError _commissioner_announce(uint32_t mask, uint8_t count, uint16_t period, IPAddress& addr);
-  otError commissioner_energy(uint32_t mask, uint8_t count, uint16_t period, uint16_t duration, IPAddress& addr, otCommissionerEnergyReportCallback cb, void* ctx);
-  otError _commissioner_energy(uint32_t mask, uint8_t count, uint16_t period, uint16_t duration, IPAddress& addr, otCommissionerEnergyReportCallback cb, void* ctx);
-  otError commissioner_panid(uint16_t, uint32_t, IPAddress&, otCommissionerPanIdConflictCallback, void* ctx);
-  otError _commissioner_panid(uint16_t, uint32_t, IPAddress&, otCommissionerPanIdConflictCallback, void* ctx);
-  OT_GETTER_DECL(uint16_t, commissioner_sessionid, Commissioner, SessionId);
-#endif
-#if OPENTHREAD_FTD
-  OT_V_SETGET_DECL(uint32_t, contextreusedelay, Thread, ContextIdReuseDelay);
-#endif
-  const OTMacCounters counter(int type);
-  OT_FUNC_1_DECL(otError, dataset_active, Dataset, GetActive, otOperationalDataset*);
-  OT_FUNC_1_DECL(otError, dataset_pending, Dataset, GetPending, otOperationalDataset*);
-  OT_FUNC_1_DECL(otError, dataset_commit_active, Dataset, SetActive, otOperationalDataset*);
-  OT_FUNC_1_DECL(otError, dataset_commit_pending, Dataset, SetPending, otOperationalDataset*);
-  OT_FUNC_4_DECL(otError, dataset_mgmtget_active, Dataset, SendMgmtActiveGet, otOperationalDatasetComponents*, uint8_t*, uint8_t, otIp6Address*);
-  OT_FUNC_4_DECL(otError, dataset_mgmtget_pending, Dataset, SendMgmtPendingGet, otOperationalDatasetComponents*, uint8_t*, uint8_t, otIp6Address*);
-  otError dataset_mgmtget_active(otOperationalDatasetComponents* dataset, uint8_t* tlvs, uint8_t len) { return dataset_mgmtget_active(dataset, tlvs, len, NULL); }
-  otError dataset_mgmtget_pending(otOperationalDatasetComponents* dataset, uint8_t* tlvs, uint8_t len) { return dataset_mgmtget_pending(dataset, tlvs, len, NULL); }
-  otError dataset_mgmtget_active(otOperationalDatasetComponents* dataset, uint8_t* tlvs, uint8_t len, IPAddress& addr);
-  otError dataset_mgmtget_pending(otOperationalDatasetComponents* dataset, uint8_t* tlvs, uint8_t len, IPAddress& addr);
-  OT_FUNC_3_DECL(otError, dataset_mgmtset_active, Dataset, SendMgmtActiveSet, otOperationalDataset*, uint8_t*, uint8_t);
-  OT_FUNC_3_DECL(otError, dataset_mgmtset_pending, Dataset, SendMgmtPendingSet, otOperationalDataset*, uint8_t*, uint8_t);
-#if OPENTHREAD_FTD
-  OT_SETGET_DECL(uint32_t, delaytimermin, Dataset, DelayTimerMinimal);
-#endif
-  // x diag
-  otError discover(uint32_t chbits, otHandleActiveScanResult callback, void* context);
-  otError discover(otActiveScanResult* table, size_t tablesize, uint32_t chbits=0xFFFFFFFF);
-  // x dns
-#if OPENTHREAD_FTD
-//  int eidcache_num();
-//  int _eidcache_num();
-//  OT_FUNC_2_DECL(otError, eidcache, Thread, GetEidCacheEntry, int, otEidCacheEntry*);
-#endif
-  const OTExtAddress eui64();
-  // x exit
-  // x logfilename
-  OT_SETGET_DECL(OTExtAddress, extaddr, Link, ExtendedAddress);
-  OT_SETGET_DECL(OTExtendedPanId, extpanid, Thread, ExtendedPanId);
-  OT_V_FUNC_0_DECL(factoryreset, Instance, FactoryReset);
-  OT_SET_IS_DECL(bool, ifconfig, Ip6, Enabled);
-  int ipaddr_num();
-  int _ipaddr_num();
-  IPAddress ipaddr(int idx=0);
-  IPAddress _ipaddr(int idx=0);
-  otError ipaddr_add(IPAddress& addr, uint8_t prefixlen, bool preferred, bool valid, bool scopeoverridevalid, uint32_t scopeoverride, bool rloc);
-  otError _ipaddr_add(IPAddress& addr, uint8_t prefixlen, bool preferred, bool valid, bool scopeoverridevalid, uint32_t scopeoverride, bool rloc);
-  otError ipaddr_del(IPAddress&);
-  otError _ipaddr_del(IPAddress&);
-  int ipmaddr_num();
-  int _ipmaddr_num();
-  IPAddress ipmaddr(int idx=0);
-  IPAddress _ipmaddr(int idx=0);
-  otError ipmaddr_add(IPAddress& addr);
-  otError _ipmaddr_add(IPAddress& addr);
-  otError ipmaddr_del(IPAddress& addr);
-  otError _ipmaddr_del(IPAddress& addr);
-#if OPENTHREAD_CONFIG_JOINER_ENABLE
-  otError joiner_start(const char* pskc, const char* provision, otJoinerCallback, void*);
-  otError _joiner_start(const char* pskc, const char* provision, otJoinerCallback, void*);
-  otError joiner_start(const char* pskc, const char* provision=NULL);
-  OT_V_FUNC_0_DECL(joiner_stop, Joiner, Stop);
-  const OTExtAddress joinerid();
-#endif
-#if OPENTHREAD_FTD
-  OT_GETTER_DECL(uint16_t, joinerport, Thread, JoinerUdpPort);
-#endif
-  OT_V_SETGET_DECL(uint32_t, keysequencecounter, Thread, KeySequenceCounter);
-  OT_V_SETGET_DECL(uint32_t, keyswitchguadtime, Thread, KeySwitchGuardTime);
-  OT_FUNC_1_DECL(otError, leaderdata, Thread, GetLeaderData, otLeaderData*);
-#if OPENTHREAD_FTD
-  OT_V_SETGET_DECL(uint32_t, leaderpartitionid, Thread, LocalLeaderPartitionId);
-  OT_V_SETGET_DECL(uint8_t, leaderweight, Thread, LocalLeaderWeight);
-#endif
-  // x macfilter
-  OT_SETGET_DECL(OTMasterKey, masterkey, Thread, MasterKey);
-  OT_SETGET_DECL(otLinkModeConfig, mode, Thread, LinkMode);
-#if OPENTHREAD_FTD
-  otError neighbor(int idx, otNeighborInfo*);
-  otError _neighbor(int idx, otNeighborInfo*);
-#endif
-  // x netdataregister
-  // x netdatashow
-  // x networkdiagnostic
-#if OPENTHREAD_FTD
-  OT_V_SETGET_DECL(uint8_t, networkidtimeout, Thread, NetworkIdTimeout);
-#endif
-  OT_SETGET_DECL(OTNetworkName, networkname, Thread, NetworkName);
-  // x networktime
-  OT_SETGET_DECL(uint16_t, panid, Link, PanId);
-  otError parent(otRouterInfo* parent);
-#if OPENTHREAD_FTD
-  OT_SETGET_DECL(uint8_t, parentpriority, Thread, ParentPriority);
-#endif
-  otError ping(IPAddress& addr, const uint8_t*, uint16_t);
-  otError _ping(IPAddress& addr, const uint8_t*, uint16_t);
-  OT_SETGET_DECL(uint32_t, pollperiod, Link, PollPeriod);
-  OT_SET_IS_DECL(bool, promiscuous, Link, Promiscuous);
-  otError promiscuous(otLinkPcapCallback, void* ctx=NULL);
-  otError _promiscuous(otLinkPcapCallback, void* ctx=NULL);
-  // x prefix
-#if OPENTHREAD_FTD
-  OT_SETGET_DECL(OTPskc, pskc, Thread, Pskc);
-  OT_FUNC_1_DECL(otError, releaserouterid, Thread, ReleaseRouterId, uint8_t);
-#endif
-  OT_V_FUNC_0_DECL(reset, Instance, Reset);
-  OT_GETTER_DECL(uint16_t, rloc16, Thread, Rloc16);
-  // x route
-#if OPENTHREAD_FTD
-  OT_FUNC_2_DECL(otError, router, Thread, GetRouterInfo, int, otRouterInfo*);
-  OT_V_SETGET_DECL(uint8_t, routerdowngradethreshold, Thread, RouterDowngradeThreshold);
-  OT_SET_IS_DECL(bool, routereligible, Thread, RouterEligible);
-  OT_V_SETGET_DECL(uint8_t, routerselectionjitter, Thread, RouterSelectionJitter);
-  OT_V_SETGET_DECL(uint8_t, routerupgradethreshold, Thread, RouterUpgradeThreshold);
-#endif
-  OT_FUNC_4_DECL(otError, activescan, Link, ActiveScan, uint16_t, uint32_t, otHandleActiveScanResult, void*);
-  OT_FUNC_4_DECL(otError, energyscan, Link, EnergyScan, uint16_t, uint32_t, otHandleEnergyScanResult, void*);
-  // x service
-  OT_IS_DECL(bool, singleton, Thread, Singleton);
-  // x sntp
-  OT_GETTER_DECL(otDeviceRole, state, Thread, DeviceRole);
-  otError state(otDeviceRole role);
-  otError _state(otDeviceRole role);
-  OT_SETTER_DECL(bool, thread, Thread, Enabled);
-  OT_SETTER_DECL(int8_t, txpower, PlatRadio, TransmitPower);
-  OT_FUNC_1_DECL(otError, txpower, PlatRadio, GetTransmitPower, int8_t*);
-  int8_t txpower() { int8_t ret; otError err = txpower(&ret); return err ? 0 : ret; }
-  inline const char* version() { return otGetVersionString(); }
+
   inline const char* VersionString() { return otGetVersionString(); }
   inline const char* RadioVersionString() { return otGetRadioVersionString(otrGetInstance()); }
   inline const char* otErrorToString(otError err) { return otThreadErrorToString(err); }
@@ -449,56 +585,46 @@ public:
   inline void RemoveStateChangeCallback(otStateChangedCallback cb, void* user) {
     otRemoveStateChangeCallback(otrGetInstance(), cb, user);
   }
+
 #include "OpenThread_APIs.inc"
+#include "OpenThread_cmds.inc"
 
-  OTBackboneRouter BackboneRouter;
-  OTBorderAgent BorderAgent;
-  OTBorderRouter BorderRouter;
-  OTChannelManager ChannelManager;
-  OTChannelMonitor ChannelMonitor;
-  OTChildSupervision ChildSupervision;
-  OTCli Cli;
-  OTCoap Coap;
-  OTCoapSecure CoapSecure;
-  OTCommissioner Commissioner;
-  OTCrypto Crypto;
-  OTDataset Dataset;
-  OTDiag Diag;
-  OTDnsClient DnsClient;
-  OTEntropy Entropy;
-  OTHeap Heap;
-  OTIcmp6 Icmp6;
-  OTInstance Instance;
-  OTIp6 Ip6;
-  OTJamDetection JamDetection;
-  OTJoiner Joiner;
-  OTLink Link;
-  OTLogging Logging;
-  OTMessage Message;
-  OTNcp Ncp;
-  OTNetData NetData;
-  OTNetworkTime NetworkTime;
-  OTPlat Plat;
-  OTRandomCrypto RandomCrypto;
-  OTRandomNonCrypto RandomNonCrypto;
-  OTServer Server;
-  OTSntpClient SntpClient;
-  OTTasklets Tasklets;
-  OTThread Thread;
-  OTUdp Udp;
+  OpenThreadBackboneRouterClass BackboneRouter;
+  OpenThreadBorderAgentClass BorderAgent;
+  OpenThreadBorderRouterClass BorderRouter;
+  OpenThreadChannelManagerClass ChannelManager;
+  OpenThreadChannelMonitorClass ChannelMonitor;
+  OpenThreadChildSupervisionClass ChildSupervision;
+  OpenThreadCliClass Cli;
+  OpenThreadCoapClass Coap;
+  OpenThreadCoapSecureClass CoapSecure;
+  OpenThreadCommissionerClass Commissioner;
+  OpenThreadCryptoClass Crypto;
+  OpenThreadDatasetClass Dataset;
+  OpenThreadDiagClass Diag;
+  OpenThreadDnsClientClass DnsClient;
+  OpenThreadEntropyClass Entropy;
+  OpenThreadHeapClass Heap;
+  OpenThreadIcmp6Class Icmp6;
+  OpenThreadInstanceClass Instance;
+  OpenThreadIp6Class Ip6;
+  OpenThreadJamDetectionClass JamDetection;
+  OpenThreadJoinerClass Joiner;
+  OpenThreadLinkClass Link;
+  OpenThreadLoggingClass Logging;
+  OpenThreadMessageClass Message;
+  OpenThreadNcpClass Ncp;
+  OpenThreadNetDataClass NetData;
+  OpenThreadNetworkTimeClass NetworkTime;
+  OpenThreadPlatClass Plat;
+  OpenThreadRandomCryptoClass RandomCrypto;
+  OpenThreadRandomNonCryptoClass RandomNonCrypto;
+  OpenThreadServerClass Server;
+  OpenThreadSntpClientClass SntpClient;
+  OpenThreadTaskletsClass Tasklets;
+  OpenThreadThreadClass Thread;
+  OpenThreadUdpClass Udp;
 private:
-
-  struct discover_data {
-    //struct k_sem sem;
-    otError error;
-    otActiveScanResult* table;
-    size_t size;
-    size_t count;
-  };
-  struct discover_data sync_discover_context;
-
-  static void joiner_start_sync_callback(otError aResult, void *aContext);
-  static void discover_sync_callback(otActiveScanResult *aResult, void *aContext);
 };
 
 extern OpenThreadClass OpenThread;
