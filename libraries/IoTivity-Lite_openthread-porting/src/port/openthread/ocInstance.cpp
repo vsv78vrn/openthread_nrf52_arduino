@@ -19,7 +19,6 @@
 #include <common/code_utils.hpp>
 #include <common/instance.hpp>
 #include <common/new.hpp>
-#include <openthread/openthread-freertos.h>
 
 extern "C" {
 #include "oc_api.h"
