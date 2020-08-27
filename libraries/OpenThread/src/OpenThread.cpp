@@ -72,7 +72,7 @@ static void otFree(void *p_ptr)
     vPortFree(p_ptr);
 }
 
-int OpenThreadClass::begin()
+void OpenThreadClass::init()
 {
 #if OPENTHREAD_CONFIG_HEAP_EXTERNAL_ENABLE
   otHeapSetCAllocFree(otCAlloc, otFree);
@@ -81,6 +81,10 @@ int OpenThreadClass::begin()
   otrInit(0, NULL);
   //otCliUartInit(otrGetInstance());
   otrUserInit();
+}
+
+int OpenThreadClass::begin()
+{
   otrStart();
   return 1;
 }
