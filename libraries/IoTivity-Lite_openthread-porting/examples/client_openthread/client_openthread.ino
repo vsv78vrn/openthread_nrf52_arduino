@@ -13,17 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 */
+
+#include <OpenThread.h>
+
 extern "C" {
 #include <iotivity-lite.h>
 #include <oc_config.h>
 #include <port/openthread/oc_instance.h>
 #include <oc_api.h>
 }
-
-#include <OpenThread.h>
-
-
-otInstance *ot_instance;
 
 static bool got_discovery_response = false;
 
@@ -132,11 +130,11 @@ ot_state_changed(uint32_t flags, void *context)
   (void)context;
 
   if (flags & OT_CHANGED_THREAD_ROLE) {
-    PRINT("Role: %d\n", otThreadGetDeviceRole(ot_instance));
+    PRINT("Role: %d\n", OpenThread.Thread.GetDeviceRole());
   }
 
   if ((flags & OT_CHANGED_THREAD_ROLE) &&
-      otThreadGetDeviceRole(ot_instance) >= OT_DEVICE_ROLE_CHILD &&
+      OpenThread.Thread.GetDeviceRole() >= OT_DEVICE_ROLE_CHILD &&
       !got_discovery_response) {
     oc_do_ip_discovery("oic.r.light", &discovery, NULL);
   }
@@ -148,28 +146,21 @@ signal_event_loop(void)
   ocInstanceSignal();
 }
 
-static int
-start_thread(void)
+static int start_thread(void)
 {
-//  if (!otThreadGetAutoStart(ot_instance)) {
-    if (otIp6SetEnabled(ot_instance, true) != OT_ERROR_NONE) {
-      OC_ERR("Can't enable ip6\n");
-      return -1;
-    }
-    if (otLinkSetPanId(ot_instance, 0xface) != OT_ERROR_NONE) {
-      OC_ERR("Can't set panid\n");
-      return -1;
-    }
-    if (otThreadSetEnabled(ot_instance, true) != OT_ERROR_NONE) {
-      OC_ERR("Can't enable thread\n");
-      return -1;
-    }
+  if (OpenThread.Ip6.SetEnabled(true) != OT_ERROR_NONE) {
+    OC_ERR("Can't enable ip6\n");
+    return -1;
+  }
+  if (OpenThread.Link.SetPanId(0xface) != OT_ERROR_NONE) {
+    OC_ERR("Can't set panid\n");
+    return -1;
+  }
+  if (OpenThread.Thread.SetEnabled(true) != OT_ERROR_NONE) {
+    OC_ERR("Can't enable thread\n");
+    return -1;
+  }
 
-//    if (otThreadSetAutoStart(ot_instance, true) != OT_ERROR_NONE) {
-//      OC_ERR("Can't set thread autostart\n");
-//      return -1;
-//    }
-//  }
   return 0;
 }
 
