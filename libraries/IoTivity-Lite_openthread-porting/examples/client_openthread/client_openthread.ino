@@ -19,7 +19,7 @@
 extern "C" {
 #include <iotivity-lite.h>
 #include <oc_config.h>
-#include <port/openthread/oc_instance.h>
+#include <oc_instance.h>
 #include <oc_api.h>
 }
 
