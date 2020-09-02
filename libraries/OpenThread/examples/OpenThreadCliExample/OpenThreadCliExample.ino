@@ -17,7 +17,8 @@ void setup() {
   Serial.println("---- OpenThread CLI -----");
   Serial.println("-------------------------");
   Serial.println();
-  
+
+  OpenThread.init();
   OpenThread.begin();
 
   // Bind CLI and Serial.

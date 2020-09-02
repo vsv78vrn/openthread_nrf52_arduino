@@ -573,6 +573,7 @@ public:
 
 class OpenThreadClass {
 public:
+  void init();
   int begin();
   int dump(Print& p);
 

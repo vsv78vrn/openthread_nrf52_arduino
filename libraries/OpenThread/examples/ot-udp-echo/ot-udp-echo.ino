@@ -31,12 +31,13 @@ uint16_t seq_id = 0;
 void setup() {
   Serial.begin(115200);
   Serial.println("Start udp-echo-cleint");
+  OpenThread.init();
   OpenThread.begin();
 
   OpenThread.channel(CHANNEL);
   OpenThread.panid(PANID);
   OpenThread.extpanid(EXTPANID);
-  OpenThread.ifconfig(true);
+  OpenThread.ifconfig.up();
 
   Serial.print("Channel = ");
   Serial.println(OpenThread.channel() );
@@ -50,7 +51,7 @@ void setup() {
 
   OTErr err;
   do {
-    err = OpenThread.joiner_start(PSK);
+    err = OpenThread.joiner.start(PSK);
 
     if (err) {
       Serial.print("Thread join failed: ");
@@ -58,7 +59,7 @@ void setup() {
       continue;
     }
 
-    err = OpenThread.thread(true);
+    err = OpenThread.thread.start();
 
     if(err) {
       Serial.print("Thread process can't start: ");
